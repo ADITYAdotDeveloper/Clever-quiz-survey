@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Quiz Feedback</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; padding: 20px; max-width: 700px; margin: auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 10px; }
+  .card { border: 1px solid #e3e3e3; padding: 16px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  label { display:block; margin-top:12px; font-weight: 600; }
+  .options { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  .options button { padding:8px 12px; border-radius:6px; border:1px solid #cfcfcf; background:#fff; cursor:pointer; }
+  .options button.selected { background:#0b76ef; color:#fff; border-color: #0b61d6; }
+  textarea { width:100%; min-height:100px; margin-top:8px; padding:8px; border-radius:6px; border:1px solid #ddd; }
+  .row { display:flex; gap:8px; margin-top:12px; }
+  button.submit { padding:10px 14px; border-radius:6px; border:none; background:#0b76ef; color:#fff; cursor:pointer; }
+  .muted { color:#666; font-size:0.9rem; margin-top:8px; }
+  .toast { position: fixed; right: 20px; bottom: 20px; background: #111; color: #fff; padding:12px 16px; border-radius:8px; display:none; }
+</style>
+</head>
+<body>
+  <h1>Quiz Feedback</h1>
+  <div class="card" role="form" aria-labelledby="feedbackForm">
+    <div id="feedbackForm">
+      <label>1) How difficult was the question?</label>
+      <div class="options" id="difficultyOptions" role="radiogroup" aria-label="Difficulty">
+        <button data-value="1">Easy</button>
+        <button data-value="2">Moderate</button>
+        <button data-value="3">Hard</button>
+      </div>
+
+      <label>2) Did you like this question?</label>
+      <div class="options" id="likedOptions" role="radiogroup" aria-label="Liked">
+        <button data-value="1">Yes</button>
+        <button data-value="2">No</button>
+      </div>
+
+      <label>3) What would you like to add/remove/improve to enhance this quiz experience?</label>
+      <textarea id="feedbackText" placeholder="Short suggestions (optional)"></textarea>
+
+      <div class="row">
+        <button class="submit" id="submitBtn">Submit Feedback</button>
+        <button id="resetBtn" type="button">Reset</button>
+      </div>
+
+      <div class="muted">You can submit as many times as you want. No personal info will be collected.</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // ===== CONFIG - change the URL below to your deployed Apps Script Web App URL =====
+  const WEBAPP_URL = 'YOUR_WEBAPP_URL_HERE'; // e.g. https://script.google.com/macros/s/AKfycbx.../exec
+  // =================================================================================
+
+  const difficultyEl = document.getElementById('difficultyOptions');
+  const likedEl = document.getElementById('likedOptions');
+  const feedbackText = document.getElementById('feedbackText');
+  const submitBtn = document.getElementById('submitBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const toast = document.getElementById('toast');
+
+  function showToast(msg, isError) {
+    toast.textContent = msg;
+    toast.style.background = isError ? '#c0392b' : '#1b9a59';
+    toast.style.display = 'block';
+    setTimeout(()=> toast.style.display = 'none', 3200);
+  }
+
+  function wireOptions(container) {
+    container.addEventListener('click', function(e) {
+      if (e.target && e.target.matches('button[data-value]')) {
+        Array.from(container.querySelectorAll('button')).forEach(b => b.classList.remove('selected'));
+        e.target.classList.add('selected');
+      }
+    });
+  }
+
+  wireOptions(difficultyEl);
+  wireOptions(likedEl);
+
+  function getSelectedValue(container) {
+    const btn = container.querySelector('button.selected');
+    return btn ? btn.getAttribute('data-value') : null;
+  }
+
+  // Basic fetch with timeout
+  function fetchWithTimeout(url, options, timeout = 8000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Request timed out'));
+      }, timeout);
+      fetch(url, options).then(res => {
+        clearTimeout(timer);
+        resolve(res);
+      }).catch(err => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
+  submitBtn.addEventListener('click', function() {
+    const difficulty = getSelectedValue(difficultyEl);
+    const liked = getSelectedValue(likedEl);
+    const feedback = feedbackText.value.trim();
+
+    if (!difficulty) {
+      showToast('Please select difficulty.', true);
+      return;
+    }
+    if (!liked) {
+      showToast('Please select if you liked the question.', true);
+      return;
+    }
+
+    // Build payload (numbers for difficulty/liked)
+    const payload = {
+      difficulty: Number(difficulty), // 1,2,3
+      liked: Number(liked),           // 1 or 2
+      feedback: feedback
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+
+    fetchWithTimeout(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 10000).then(resp => resp.json())
+      .then(data => {
+        if (data && data.success) {
+          showToast('Response added. Thank you!');
+          // Optionally clear form
+          resetForm();
+        } else {
+          console.error('Server error:', data);
+          showToast('Failed to save response. Try again.', true);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        showToast('Network error. Try again.', true);
+      })
+      .finally(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Feedback';
+      });
+  });
+
+  resetBtn.addEventListener('click', resetForm);
+
+  function resetForm() {
+    Array.from(difficultyEl.querySelectorAll('button')).forEach(b => b.classList.remove('selected'));
+    Array.from(likedEl.querySelectorAll('button')).forEach(b => b.classList.remove('selected'));
+    feedbackText.value = '';
+  }
+
+  // Accessibility: allow keyboard toggle on options
+  document.querySelectorAll('.options').forEach(container => {
+    container.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' ') {
+        const candidate = e.target.closest('button[data-value]');
+        if (candidate) { candidate.click(); e.preventDefault(); }
+      }
+    });
+  });
+
+})();
+</script>
+</body>
+</html>
